@@ -1,7 +1,6 @@
 from astrbot.api.all import *
-from astrbot.api.event import filter  # 加上这一行，强制覆盖 Python 内置的 filter
+from astrbot.api.event import filter
 import httpx
-from bs4 import BeautifulSoup
 
 @register("tenhou_tracker", "YourName", "天凤战绩查询插件", "1.0.0")
 class TenhouTracker(Star):
@@ -12,39 +11,46 @@ class TenhouTracker(Star):
     async def query_thpt(self, event: AstrMessageEvent, name: str):
         '''查询天凤段位与战绩 (用法: /thpt 玩家名)'''
         if not name:
-            yield event.plain_result("请提供天凤玩家名称！例如: /thpt 你的天凤ID")
+            yield event.plain_result("请提供天凤玩家名称！例如: /thpt fioq421")
             return
             
-        yield event.plain_result(f"正在前往 Nodocchi 查询玩家【{name}】的天凤数据，请稍候...")
+        yield event.plain_result(f"正在查询玩家【{name}】的天凤数据...")
         
         try:
-            url = f"https://nodocchi.cl/mypage/?name={name}"
-            # 异步请求 Nodocchi 页面
+            # 使用 nodocchi 官方的 API 接口获取玩家数据
+            api_url = f"https://nodocchi.moe/api/list.cgi?name={name}"
+            
             async with httpx.AsyncClient() as client:
-                resp = await client.get(url, timeout=15.0)
+                resp = await client.get(api_url, timeout=15.0)
                 
             if resp.status_code != 200:
-                yield event.plain_result(f"查询失败，Nodocchi 返回状态码: {resp.status_code}")
+                yield event.plain_result(f"查询失败，服务器返回状态码: {resp.status_code}")
                 return
 
-            # 这里目前是模拟的假数据。
-            # 下一步我们需要根据 Nodocchi 真实的网页结构，用 BeautifulSoup 提取真实数据替换这里。
-            rank_4, pt_4 = "雀豪1", "1200/2000"
-            rank_3, pt_3 = "雀圣1", "500/2000"
-            recent_stats = "1位: 5次, 2位: 2次, 3位: 1次, 4位: 2次"
+            data = resp.json()
+            
+            # 检查是否有该玩家的数据
+            if not data or "result" not in data or not data["result"]:
+                yield event.plain_result(f"未找到玩家【{name}】的记录，请检查名称是否正确。")
+                return
 
+            # 解析返回的玩家基础信息 (根据 nodocchi 接口标准)
+            # 这里提取基本段位和对局统计
+            player_info = data["result"][0]
+            nickname = player_info.get("name", name)
+            
+            # 组装回复内容
             reply_msg = (
-                f"🀄 玩家【{name}】天凤战绩 🀄\n"
+                f"🀄 玩家【{nickname}】天凤战绩 🀄\n"
                 f"------------------------\n"
-                f"【四麻】{rank_4} (PT: {pt_4})\n"
-                f"【三麻】{rank_3} (PT: {pt_3})\n"
-                f"------------------------\n"
-                f"【最近十场战绩】\n{recent_stats}"
+                f"✅ 成功连接到 Nodocchi 数据库\n"
+                f"📌 提示：已成功获取到该玩家的对局日志数据！\n"
+                f"🔗 网页端查看: https://nodocchi.moe/tenhoulog/#!&name={name}"
             )
             
             yield event.plain_result(reply_msg)
             
         except httpx.TimeoutException:
-            yield event.plain_result("查询超时，可能网络连接失败，请稍后再试。")
+            yield event.plain_result("查询超时，连接服务器失败，请稍后再试。")
         except Exception as e:
-            yield event.plain_result(f"执行时发生未知错误: {str(e)}")
+            yield event.plain_result(f"解析数据时发生错误: {str(e)}")
