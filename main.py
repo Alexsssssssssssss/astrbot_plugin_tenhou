@@ -1,4 +1,5 @@
 from astrbot.api.all import *
+from astrbot.api.event import filter  # 加上这一行，强制覆盖 Python 内置的 filter
 import httpx
 from bs4 import BeautifulSoup
 
