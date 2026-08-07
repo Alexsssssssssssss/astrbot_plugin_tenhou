@@ -21,12 +21,9 @@ class TenhouTracker(Star):
             
             # 设置本地代理，解决国内服务器/电脑的 getaddrinfo 无法解析问题
             # 默认使用本地 7890 端口，如果你的代理端口不同，请修改数字
-            proxies = {
-                "http://": "http://127.0.0.1:7897",
-                "https://": "http://127.0.0.1:7897",
-            }
+            proxy_url = "http://127.0.0.1:7897"  
             
-            async with httpx.AsyncClient(proxies=proxies) as client:
+            async with httpx.AsyncClient(proxy=proxy_url) as client:
                 resp = await client.get(api_url, timeout=15.0)
                 
             if resp.status_code != 200:
