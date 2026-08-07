@@ -14,14 +14,12 @@ class TenhouTracker(Star):
             yield event.plain_result("请提供天凤玩家名称！例如: /thpt fioq421")
             return
             
-        yield event.plain_result(f"正在通过代理查询玩家【{name}】的天凤数据...")
+        yield event.plain_result(f"正在查询玩家【{name}】的战绩数据...")
         
         try:
-            api_url = f"https://nodocchi.moe/api/list.cgi?name={name}"
-            
-            # 设置本地代理，解决国内服务器/电脑的 getaddrinfo 无法解析问题
-            # 默认使用本地 7890 端口，如果你的代理端口不同，请修改数字
-            proxy_url = "http://127.0.0.1:7897"  
+            # 使用 nodocchi 网页端真正的玩家数据查询接口
+            api_url = f"https://nodocchi.moe/api/user.cgi?name={name}"
+            proxy_url = "http://127.0.0.1:7897"  # 如果你的代理端口不是 7890 请修改
             
             async with httpx.AsyncClient(proxy=proxy_url) as client:
                 resp = await client.get(api_url, timeout=15.0)
@@ -32,34 +30,31 @@ class TenhouTracker(Star):
 
             data = resp.json()
             
-            if not data or "result" not in data or not data["result"]:
-                yield event.plain_result(f"未找到玩家【{name}】的记录，请检查名称是否正确。")
+            if not data:
+                yield event.plain_result(f"未找到玩家【{name}】的记录。")
                 return
 
-            # 解析返回的第一条玩家数据
-            p_data = data["result"][0]
-            nickname = p_data.get("name", name)
+            # 解析返回的玩家真实数据
+            nickname = data.get("name", name)
             
-            # 提取具体的段位和对局统计信息
-            # 根据 nodocchi 接口字段进行解析
-            dan_4 = p_data.get("dan4", "未知")  # 四麻段位
-            pt_4 = p_data.get("rate4", "未知")  # 四麻 pt / 积分
-            dan_3 = p_data.get("dan3", "未知")  # 三麻段位
-            pt_3 = p_data.get("rate3", "未知")  # 三麻 pt / 积分
-            game_count = p_data.get("count", "未知") # 总对局数
-
+            # 提取四麻与三麻的关键段位和积分字段
+            # 根据 nodocchi 官方 api 结构
+            detail_4 = data.get("rate4", {})
+            dan_4 = detail_4.get("dan", "未知") if isinstance(detail_4, dict) else "未知"
+            
+            detail_3 = data.get("rate3", {})
+            dan_3 = detail_3.get("dan", "未知") if isinstance(detail_3, dict) else "未知"
+            
             reply_msg = (
                 f"🀄 玩家【{nickname}】天凤战绩 🀄\n"
                 f"------------------------\n"
-                f"【四人麻将】段位: {dan_4} | 积分: {pt_4}\n"
-                f"【三人麻将】段位: {dan_3} | 积分: {pt_3}\n"
-                f"【总对局数】{game_count} 局\n"
-                f"------------------------"
+                f"【四人麻将段位】{dan_4}\n"
+                f"【三人麻将段位】{dan_3}\n"
+                f"------------------------\n"
+                f"🔗 详细页面: https://nodocchi.moe/tenhoulog/#!&name={name}"
             )
             
             yield event.plain_result(reply_msg)
             
-        except httpx.TimeoutException:
-            yield event.plain_result("查询超时，请检查代理软件是否开启且端口正确。")
         except Exception as e:
-            yield event.plain_result(f"获取或解析数据时发生错误: {str(e)}")
+            yield event.plain_result(f"解析数据时发生错误: {str(e)}")
