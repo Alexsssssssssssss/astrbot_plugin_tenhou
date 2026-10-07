@@ -9,9 +9,9 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 if __package__:
-    from .rank import format_rank_lines
+    from .rank import RankUnavailable, estimate_ranks, format_rank_lines
 else:
-    from rank import format_rank_lines
+    from rank import RankUnavailable, estimate_ranks, format_rank_lines
 
 API_URL = 'https://nodocchi.moe/api/listuser.php'
 CN_TIME = timezone(timedelta(hours=8))
@@ -74,8 +74,14 @@ def format_records(name: str, data) -> str:
         except (KeyError, ValueError, TypeError, OverflowError, OSError) as exc:
             raise DataError('对局时间或成绩异常') from exc
         groups[players].append((timestamp, date, order, point))
-    lines = [f'🀄 天凤战绩【{name}】', '数据源：nodocchi.moe（本次返回的公开对局记录）']
-    lines.extend(format_rank_lines(name, data))
+    lines = [f'🀄 天凤战绩【{name}】', '数据源：nodocchi.moe']
+    try:
+        ranks = estimate_ranks(name, data)
+    except RankUnavailable:
+        ranks = None
+        lines.append('段位/PT（推算）：暂不可用')
+    else:
+        lines.extend(format_rank_lines(name, data, ranks=ranks))
     rates = data.get('rate', {})
     for players in (4, 3):
         records = groups[players]
@@ -90,19 +96,24 @@ def format_records(name: str, data) -> str:
             f'记录范围：{records[0][1]:%Y-%m-%d} ～ {records[-1][1]:%Y-%m-%d}',
             '顺位：' + ' / '.join(f'{i}位 {orders[i]} ({orders[i] / count:.1%})' for i in range(1, players + 1)),
             f'平均顺位：{sum(record[2] for record in records) / count:.3f}',
-            f'平均对局得点：{sum(record[3] for record in records) / count:+.2f}（非段位 PT）',
+            f'平均对局得点：{sum(record[3] for record in records) / count:+.2f}',
         ])
         rate = rates.get(str(players)) if isinstance(rates, dict) else None
         if isinstance(rate, (int, float)) and not isinstance(rate, bool) and math.isfinite(rate):
-            lines.append(f'数据源 R 值：{rate:g}（非实时保证）')
-        lines.append('最近 5 场（UTC+8）：')
-        for _, date, order, point in reversed(records[-5:]):
-            lines.append(f'  {date:%m-%d %H:%M}  {order}位  {point:+.1f}')
-    lines.extend(['\n统计包含各桌级及东风/半庄，以数据源收录为准，不保证完整历史。', f'详情：{link}'])
+            lines.append(f'数据源 R 值：{rate:g}')
+        rank = ranks[players] if ranks is not None else None
+        if rank is None or rank.updated is None:
+            lines.append('最高段位/PT（推算）：暂无数据')
+        else:
+            pt = 'PT 不适用' if rank.highest_grade == 20 else f'{rank.highest_pt:g} PT'
+            lines.append(f'最高段位/PT（推算）：{rank.highest_name} / {pt}')
+        peak_rate = f'{rank.highest_rate:g}' if rank is not None and rank.highest_rate is not None else '暂无数据'
+        lines.append(f'最高 R 值：{peak_rate}')
+    lines.append(f'\n详情：{link}')
     return '\n'.join(lines)
 
 
-@register('tenhou_tracker', 'dawwq', '天凤战绩及段位/PT推算', '1.2.0')
+@register('tenhou_tracker', 'dawwq', '天凤战绩及段位/PT推算', '1.3.0')
 class TenhouTracker(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -127,7 +138,7 @@ class TenhouTracker(Star):
             # Without an explicit proxy, HTTPX honors system proxy variables.
             async with httpx.AsyncClient(
                 proxy=proxy, timeout=timeout, follow_redirects=True,
-                headers={'User-Agent': 'astrbot_plugin_tenhou/1.2.0', 'Accept': 'application/json'},
+                headers={'User-Agent': 'astrbot_plugin_tenhou/1.3.0', 'Accept': 'application/json'},
             ) as client:
                 data = await fetch_records(client, name)
             result = format_records(name, data)

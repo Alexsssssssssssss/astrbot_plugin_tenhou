@@ -96,7 +96,7 @@ class RankTests(unittest.TestCase):
         r = estimate_ranks('玩家', data)[4]
         self.assertEqual((r.grade, r.pt), (20, 2200))
         text = '\n'.join(format_rank_lines('玩家', data))
-        self.assertIn('天凤位 / 不适用', text)
+        self.assertIn('天凤位 / PT 不适用', text)
         self.assertNotIn('2200 PT', text)
 
     def test_missing_rules_unavailable(self):
@@ -107,9 +107,55 @@ class RankTests(unittest.TestCase):
             estimate_ranks('玩家', data)
         self.assertIn('暂不可用', '\n'.join(format_rank_lines('玩家', data)))
 
-    def test_last_ranked_time_and_labels(self):
+    def test_compact_rank_labels_keep_estimate_marker(self):
         data = {'name': '玩家', 'list': [game(), game(time=NOW+86400, kind='a')]}
         text = '\n'.join(format_rank_lines('玩家', data))
-        self.assertIn('最新牌谱推算，非官方实时值', text)
-        self.assertIn('2023-11-15 06:13 UTC+8', text)
+        self.assertIn('段位/PT（推算）', text)
+        self.assertNotIn('UTC+8', text)
+        self.assertNotIn('可能造成偏差', text)
         self.assertIn('三麻：无可用段位战记录', text)
+
+    def test_peak_survives_pt_loss(self):
+        data = seeded(11, 400, game(), game(order=4, time=NOW+1))
+        r = estimate_ranks('玩家', data)[4]
+        self.assertEqual((r.grade, r.pt), (11, 380))
+        self.assertEqual((r.highest_grade, r.highest_pt), (11, 420))
+
+    def test_peak_pt_is_paired_with_highest_grade(self):
+        data = seeded(11, 750, game(), game(level=2, time=NOW+1))
+        r = estimate_ranks('玩家', data)[4]
+        self.assertEqual((r.highest_grade, r.highest_pt), (12, 600))
+
+    def test_highest_rate_includes_latest_metadata(self):
+        rows = [game(time=NOW), game(time=NOW+1), game(time=NOW+2)]
+        for row, rate in zip(rows, (2500, 1800, 1750)):
+            row['rate'] = rate
+        data = {'name': '玩家', 'list': rows, 'rate': {'4': 1820}}
+        r = estimate_ranks('玩家', data)[4]
+        # First pre-game R is discarded, as in the website's initial reset.
+        self.assertEqual(r.highest_rate, 1820)
+        data['rate']['4'] = 1700
+        self.assertEqual(estimate_ranks('玩家', data)[4].highest_rate, 1800)
+
+    def test_missing_historical_rate_is_not_replaced_with_current(self):
+        data = {'name': '玩家', 'list': [game(), game(time=NOW+1)], 'rate': {'4': 1820}}
+        self.assertIsNone(estimate_ranks('玩家', data)[4].highest_rate)
+
+    def test_reset_clears_peak_rank_and_rate(self):
+        rows = [game(time=NOW), game(time=NOW+1), game(time=NOW+2), game(time=NOW+3)]
+        rows[1]['rate'] = 2000
+        rows[2]['reinit'] = {}
+        rows[2]['rate'] = 2100
+        rows[3]['rate'] = 1600
+        r = estimate_ranks('玩家', {'name': '玩家', 'list': rows})[4]
+        self.assertEqual((r.highest_grade, r.highest_pt, r.highest_rate), (2, 0, 1600))
+
+    def test_peak_modes_are_independent(self):
+        rows = [game(time=NOW), game(time=NOW+1),
+                game(players=3, time=NOW+2), game(players=3, time=NOW+3)]
+        rows[1]['rate'] = 1800
+        rows[2]['rate'] = 1600
+        rows[3]['rate'] = 1700
+        ranks = estimate_ranks('玩家', {'name': '玩家', 'list': rows})
+        self.assertEqual(ranks[4].highest_rate, 1800)
+        self.assertEqual(ranks[3].highest_rate, 1700)

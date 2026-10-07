@@ -16,7 +16,7 @@ def record(players, order, point, timestamp):
 
 
 class StatisticsTests(unittest.TestCase):
-    def test_groups_statistics_and_sorted_recent(self):
+    def test_groups_statistics_and_compact_output(self):
         data = {'name': '测试', 'rate': {'4': 1972}, 'list': [
             record(4, 4, -40, 1700003600), record(3, 2, 5, 1700000000),
             record(4, 1, 50, 1700000000)]}
@@ -27,7 +27,12 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn('平均顺位：2.500', result)
         self.assertIn('平均对局得点：+5.00', result)
         self.assertIn('R 值：1972', result)
-        self.assertLess(result.index('4位  -40.0'), result.index('1位  +50.0'))
+        self.assertNotIn('最近 5 场', result)
+        self.assertNotIn('非段位 PT', result)
+        self.assertNotIn('非实时保证', result)
+        self.assertNotIn('截至', result)
+        self.assertIn('最高段位/PT（推算）', result)
+        self.assertIn('最高 R 值：暂无数据', result)
         self.assertIn('name=%E6%B5%8B%E8%AF%95', result)
 
     def test_no_records(self):
@@ -41,10 +46,11 @@ class StatisticsTests(unittest.TestCase):
             with self.subTest(data=data), self.assertRaises(main.DataError):
                 main.format_records('测试', data)
 
-    def test_recent_is_limited(self):
+    def test_output_does_not_list_individual_games(self):
         data = {'name': '测试', 'list': [record(4, 1, i, 1700000000+i) for i in range(10)]}
         result = main.format_records('测试', data)
-        self.assertEqual(sum(line.startswith('  ') for line in result.splitlines()), 5)
+        self.assertEqual(sum(line.startswith('  ') for line in result.splitlines()), 0)
+        self.assertLess(len(result.splitlines()), 25)
 
 
 class NetworkTests(unittest.IsolatedAsyncioTestCase):
@@ -97,7 +103,7 @@ class NetworkTests(unittest.IsolatedAsyncioTestCase):
         result = await self.command(lambda request: httpx.Response(200, json=data))
         self.assertEqual(len(result), 2)
         self.assertIn('四麻：1 场', result[-1])
-        self.assertIn('段位/PT（最新牌谱推算，非官方实时值）', result[-1])
+        self.assertIn('段位/PT（推算）', result[-1])
         self.assertIn('四麻：9级 / 0 PT', result[-1])
 
     async def test_command_network_errors(self):

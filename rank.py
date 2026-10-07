@@ -7,7 +7,6 @@ Rules inspected on 2026-10-08. No remote JavaScript is executed at runtime.
 import math
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 
 
 GRADE_NAMES = ('新人', '9级', '8级', '7级', '6级', '5级', '4级', '3级',
@@ -33,10 +32,17 @@ class Rank:
     pt: float = 0
     games: int = 0
     updated: int | None = None
+    highest_grade: int = 0
+    highest_pt: float = 0
+    highest_rate: float | None = None
 
     @property
     def name(self):
         return GRADE_NAMES[self.grade]
+
+    @property
+    def highest_name(self):
+        return GRADE_NAMES[self.highest_grade]
 
 
 def initial_pt(grade):
@@ -136,11 +142,19 @@ def estimate_ranks(name, data):
         expired = (previous_time is not None and timestamp - previous_time >= ID_EXPIRY_SECONDS
                    and all(rank.grade < 16 for rank in ranks.values())
                    and not any(start <= timestamp <= end for start, end in ranges))
-        if index in resets or explicit_reset or (reinit is None and expired):
+        reset = index in resets or explicit_reset or (reinit is None and expired)
+        if reset:
             ranks = {3: Rank(), 4: Rank()}
         previous_time = timestamp
         players = row['playernum']
         rank = ranks[players]
+        # The website excludes the first record's pre-game R after an ID
+        # reset, and starts both modes' maxima again for the new account.
+        rate = row.get('rate')
+        if (index > 0 and not reset and type(rate) in (int, float)
+                and math.isfinite(rate) and rate > 0):
+            rank.highest_rate = max(rank.highest_rate or 0, rate)
+        delta = 0
         if row.get('sctype') not in ('a', 'b', 'c', 'd', 'e', 'f'):
             raise RankUnavailable('未知对局类型')
         if row['sctype'] in ('b', 'c'):
@@ -160,7 +174,6 @@ def estimate_ranks(name, data):
             # At tenhou-i the website freezes ordinary PT; virtual PT is a
             # separate metric and is deliberately not presented as real PT.
             if rank.grade < 20:
-                delta = 0
                 if order == players:
                     delta = -max(0, rank.grade - 7) * 10
                 elif players == 4 and order <= 2:
@@ -199,23 +212,32 @@ def estimate_ranks(name, data):
             elif rank.pt >= thresholds[rank.grade]:
                 rank.grade += 1
                 rank.pt = initial_pt(rank.grade)
+        # Highest PT belongs to the highest grade, rather than the largest
+        # numeric PT ever held in a lower grade. Match assumegrade's peaks.
+        if delta > 0 and (rank.grade, rank.pt) > (rank.highest_grade, rank.highest_pt):
+            rank.highest_grade, rank.highest_pt = rank.grade, rank.pt
+    current_rates = data.get('rate', {})
+    if isinstance(current_rates, dict):
+        for players, rank in ranks.items():
+            current = current_rates.get(str(players))
+            if (rank.highest_rate is not None and type(current) in (int, float)
+                    and math.isfinite(current) and current > 0):
+                rank.highest_rate = max(rank.highest_rate, current)
     return ranks
 
 
-def format_rank_lines(name, data):
+def format_rank_lines(name, data, *, ranks=None):
     try:
-        ranks = estimate_ranks(name, data)
+        ranks = ranks if ranks is not None else estimate_ranks(name, data)
     except RankUnavailable as exc:
         return [f'段位/PT（推算）：暂不可用（{exc}）']
-    lines = ['段位/PT（最新牌谱推算，非官方实时值）：']
+    lines = ['段位/PT（推算）：']
     for players in (4, 3):
         rank = ranks[players]
         mode = '四麻' if players == 4 else '三麻'
         if rank.updated is None:
             lines.append(f'{mode}：无可用段位战记录，无法推算')
             continue
-        date = datetime.fromtimestamp(rank.updated, timezone(timedelta(hours=8)))
-        pt = '不适用（天凤位不计普通段位 PT）' if rank.grade == 20 else f'{rank.pt:g} PT'
-        lines.append(f'{mode}：{rank.name} / {pt}（截至 {date:%Y-%m-%d %H:%M} UTC+8）')
-    lines.append('根据收录段位战重建；漏收、账号重置或未同步对局可能造成偏差。')
+        pt = 'PT 不适用' if rank.grade == 20 else f'{rank.pt:g} PT'
+        lines.append(f'{mode}：{rank.name} / {pt}')
     return lines
