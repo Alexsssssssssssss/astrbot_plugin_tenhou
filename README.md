@@ -1,6 +1,6 @@
 # AstrBot 天凤战绩查询插件
 
-在 AstrBot 中安装本插件后，发送 `/thpt 玩家名`，例如 `/thpt fioq421`。
+在 AstrBot 中安装本插件后，发送 `/thpt 玩家名`。
 
 插件请求 nodocchi.moe 网站前端使用的公开接口
 `https://nodocchi.moe/api/listuser.php?name=玩家名`，根据返回的真实对局记录分别显示三麻、四麻的：
