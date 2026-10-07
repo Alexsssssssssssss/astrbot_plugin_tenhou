@@ -1,0 +1,13 @@
+{
+  "proxy_url": {
+    "description": "可选 HTTP/SOCKS 代理地址",
+    "type": "string",
+    "hint": "留空使用系统 HTTP_PROXY/HTTPS_PROXY；不再默认连接本地 7890 端口。SOCKS 代理需额外安装 httpx[socks]。",
+    "default": ""
+  },
+  "timeout_seconds": {
+    "description": "单次数据源请求超时（秒，1～120）",
+    "type": "int",
+    "default": 30
+  }
+}
